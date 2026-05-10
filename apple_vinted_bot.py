@@ -14,7 +14,7 @@ os.environ.setdefault("BOT_USER_STATE_FILE", "apple_vinted_profiles.json")
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
-from apple_vinted_platform import APPLE_VINTED_REGIONS, apple_vinted_loop
+from apple_vinted_platform import apple_vinted_loop
 from shared import (
     BOT_TOKEN,
     MSK_TZ,
@@ -35,6 +35,7 @@ from shared import (
 
 bot_app = None
 MARKET = "apple_vinted"
+APPLE_VINTED_REGIONS = ("ee", "lt", "lv", "pl")
 
 
 def _price_label():
