@@ -165,7 +165,14 @@ def _watch_model_signature(text):
 
 
 def _airpods_model_signature(text):
-    if "airpods" not in text and "air pods" not in text and "airpod" not in text and "aipods" not in text:
+    if (
+        "airpods" not in text
+        and "air pods" not in text
+        and "airpod" not in text
+        and "aipods" not in text
+        and "аирподс" not in text
+        and "эйрподс" not in text
+    ):
         return ""
     if re.search(r"\bmax\b", text):
         return "max"
@@ -254,6 +261,66 @@ def _apple_text_blob(item):
     return " ".join(parts).lower()
 
 
+def _apple_url_item_id(item):
+    url = str(item.get("url") or "") if isinstance(item, dict) else ""
+    match = re.search(r"/items/(\d+)", url)
+    return match.group(1) if match else ""
+
+
+def _apple_item_fingerprint(item):
+    title = re.sub(r"\s+", " ", str(item.get("title") or "").lower()).strip()
+    title = re.sub(r"[^a-z0-9а-яё]+", " ", title).strip()
+    seller = _get_nested(item, "user.id") or _get_nested(item, "user.login") or _get_nested(item, "user.username") or ""
+    price = apple_vinted_price_eur(item)
+    signature = apple_vinted_market_signature(item)
+    if not title or not signature:
+        return ""
+    return f"fp:{seller}:{signature}:{title}:{price:.2f}"
+
+
+def _apple_primary_seen_key(item):
+    item_id = str(item.get("id") or "").strip() if isinstance(item, dict) else ""
+    if item_id:
+        return item_id
+    url_id = _apple_url_item_id(item)
+    if url_id:
+        return f"url:{url_id}"
+    return _apple_item_fingerprint(item)
+
+
+def _apple_seen_aliases(item, domain):
+    aliases = set()
+    item_id = str(item.get("id") or "").strip() if isinstance(item, dict) else ""
+    url_id = _apple_url_item_id(item)
+    fingerprint = _apple_item_fingerprint(item)
+
+    for value in (item_id, f"url:{url_id}" if url_id else "", fingerprint):
+        value = str(value or "").strip()
+        if not value:
+            continue
+        aliases.add(value)
+        aliases.add(f"{domain}:{value}")
+    return aliases
+
+
+def _apple_item_seen(item, domain, runtime_seen):
+    aliases = _apple_seen_aliases(item, domain)
+    if aliases & runtime_seen:
+        return True
+
+    seen = state.get("apple_vinted_seen") or set()
+    seen_strings = {str(value) for value in seen}
+    if aliases & seen_strings:
+        return True
+
+    item_id = str(item.get("id") or "").strip() if isinstance(item, dict) else ""
+    if item_id and any(value.endswith(f":{item_id}") for value in seen_strings):
+        return True
+
+    primary_key = _apple_primary_seen_key(item)
+    return bool(primary_key and has_item_seen("apple_vinted", primary_key))
+
+
 def _apple_price_bounds(domain):
     currency = vinted_domain_currency(domain)
     rate = get_fx_rate("EUR", currency)
@@ -334,7 +401,7 @@ def apple_vinted_product_kind(item):
         ("iphone", ["iphone", "айфон"]),
         ("ipad", ["ipad", "айпад"]),
         ("macbook", ["macbook", "mac book", "макбук"]),
-        ("airpods", ["airpods", "air pods", "аирподс", "эйрподс"]),
+        ("airpods", ["airpods", "airpod", "air pods", "aipods", "аирподс", "эйрподс"]),
         ("watch", ["apple watch", "iwatch", "эпл вотч"]),
         ("imac", ["imac"]),
         ("mac", ["mac mini", "mac studio"]),
@@ -518,9 +585,9 @@ def apple_vinted_loop(bot_app):
                 for item in items or []:
                     if not is_market_run_current("apple_vinted", run_id):
                         break
-                    iid = item.get("id")
-                    seen_key = f"{domain}:{iid}" if iid else ""
-                    if not iid or seen_key in sent_in_this_run or has_item_seen("apple_vinted", iid, domain):
+                    seen_key = _apple_primary_seen_key(item)
+                    seen_aliases = _apple_seen_aliases(item, domain)
+                    if not seen_key or _apple_item_seen(item, domain, sent_in_this_run):
                         continue
                     title = item.get("title", "?")
 
@@ -533,7 +600,7 @@ def apple_vinted_loop(bot_app):
 
                     ts_d = parse_apple_vinted_ts(item)
                     if ts_d is None:
-                        log.info("SKIP Apple Vinted no publish time id=%s '%s'", iid, title[:60])
+                        log.info("SKIP Apple Vinted no publish time id=%s '%s'", seen_key, title[:60])
                         continue
                     age_ok = age_in_range(
                         ts_d,
@@ -609,9 +676,9 @@ def apple_vinted_loop(bot_app):
                     msg = format_apple_vinted_message(
                         item, domain, title, title_ru, price, curr, link, ts_d, market_line
                     )
-                    if not mark_item_seen("apple_vinted", iid, domain):
+                    if not mark_item_seen("apple_vinted", seen_key):
                         continue
-                    sent_in_this_run.add(seen_key)
+                    sent_in_this_run.update(seen_aliases)
                     state["apple_vinted_stats"]["found"] += 1
                     log.info("FOUND Apple Vinted: %s - %.2f %s", title, price, curr)
                     loop.run_until_complete(_send_apple_vinted_item(bot_app, photo_data, msg, run_id))
