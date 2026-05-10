@@ -7,7 +7,6 @@ from io import BytesIO
 
 from market_price import calculate_market_price
 from shared import (
-    BOT_TOKEN,
     USER_AGENTS,
     VINTED_REGIONS,
     age_in_range,
@@ -60,20 +59,6 @@ APPLE_PRODUCT_TERMS = [
     "iphone", "ipad", "macbook", "mac book", "airpods", "air pods",
     "apple watch", "iwatch", "imac", "mac mini", "mac studio", "apple pencil",
     "айфон", "айпад", "макбук", "аирподс", "эйрподс", "эпл вотч",
-]
-
-APPLE_ACCESSORY_TERMS = [
-    "case", "cover", "covers", "protector", "screen protector", "glass protector",
-    "charger", "charging", "cable", "adapter", "adaptor", "power supply",
-    "strap", "band", "bracelet", "loop", "watch band", "watch strap",
-    "box only", "empty box", "original box", "receipt", "manual",
-    "skin", "sticker", "keyboard cover", "mouse pad", "stand", "holder",
-    "чехол", "кейс", "стекло", "защитное стекло", "зарядка", "кабель",
-    "адаптер", "ремешок", "браслет", "коробка", "пустая коробка",
-    "etui", "pokrowiec", "szklo", "szkło", "ladowarka", "ładowarka",
-    "kabel", "adapter", "pasek", "bransoleta", "pudelko", "pudełko",
-    "deklas", "macins", "laidas", "ikroviklis", "įkroviklis", "dirželis",
-    "kaitseklaas", "laadija", "juhe", "rihm", "karp",
 ]
 
 APPLE_BAD_CONDITION_TERMS = [
@@ -158,8 +143,6 @@ def apple_vinted_matches_keyword(item, keyword):
 def is_relevant_apple_vinted_item(item):
     text = _apple_text_blob(item)
     if not _has_any_term(text, APPLE_PRODUCT_TERMS):
-        return False
-    if _has_any_term(text, APPLE_ACCESSORY_TERMS):
         return False
     if _has_any_term(text, APPLE_BAD_CONDITION_TERMS):
         return False
