@@ -1,8 +1,11 @@
 import asyncio
 import html
+import logging
 import os
 import threading
 from datetime import datetime
+
+logging.basicConfig(format="%(asctime)s [%(levelname)s] %(message)s", level=logging.INFO)
 
 if os.environ.get("APPLE_BOT_TOKEN"):
     os.environ["BOT_TOKEN"] = os.environ["APPLE_BOT_TOKEN"]
@@ -321,6 +324,9 @@ def main():
     global bot_app
     if not BOT_TOKEN:
         raise RuntimeError("Set APPLE_BOT_TOKEN or BOT_TOKEN")
+    log.info("Starting Apple Vinted bot")
+    log.info("Apple Vinted regions: %s", ", ".join(APPLE_VINTED_REGIONS))
+    log.info("Token source: %s", "APPLE_BOT_TOKEN" if os.environ.get("APPLE_BOT_TOKEN") else "BOT_TOKEN")
     bot_app = Application.builder().token(BOT_TOKEN).post_init(setup_bot_commands).build()
     bot_app.add_handler(CommandHandler("start", _autosave(cmd_start)))
     bot_app.add_handler(CommandHandler("stop", _autosave(cmd_stop)))
@@ -329,6 +335,7 @@ def main():
     bot_app.add_handler(CommandHandler("keywords", _autosave(cmd_keywords)))
     bot_app.add_handler(CallbackQueryHandler(_autosave(on_callback)))
     bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _autosave(on_message)))
+    log.info("Apple Vinted bot polling started. Open Telegram and send /start")
     bot_app.run_polling(close_loop=False)
 
 
