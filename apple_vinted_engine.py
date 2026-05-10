@@ -169,7 +169,13 @@ def _airpods_model_signature(text):
         return ""
     if re.search(r"\bmax\b", text):
         return "max"
-    if re.search(r"\bpro\s*2\b|2\s*(?:gen|generation|generacji).*\bpro\b", text):
+    is_pro = re.search(r"\bpro\b", text)
+    is_second = re.search(
+        r"\b(?:2|ii|2nd|second)\b|2\s*[.#-]?\s*(?:gen|gener|generation|generacji|generacja|generacie|generacia)",
+        text,
+        re.IGNORECASE,
+    )
+    if is_pro and is_second:
         return "pro 2"
     if re.search(r"\bpro\b", text):
         return "pro"
@@ -341,6 +347,9 @@ def apple_vinted_product_kind(item):
 
 
 def apple_vinted_matches_keyword(item, keyword):
+    keyword = str(keyword or "").lower().strip()
+    if _has_any_term(keyword, ["airpods", "air pods", "airpod", "aipods", "аирподс", "эйрподс"]):
+        return apple_vinted_product_kind(item) == "airpods"
     return keyword_matches_text(_apple_text_blob(item), keyword)
 
 
@@ -401,6 +410,8 @@ def _queries():
     seen = set()
     for value in values:
         query = re.sub(r"\s+", " ", str(value or "")).strip()
+        if _has_any_term(query.lower(), ["airpods", "air pods", "airpod", "aipods", "аирподс", "эйрподс"]):
+            query = "airpods"
         key = query.lower()
         if query and key not in seen:
             seen.add(key)
@@ -557,31 +568,35 @@ def apple_vinted_loop(bot_app):
                             market_items = items
                         market_items = market_items or items
 
+                    market_line = ""
                     market = apple_vinted_market_price_eur(market_items, item, keyword)
-                    if not market:
+                    if market:
+                        market_eur = float(market["price"])
+                        market_count = int(market["count"])
+                        if market_eur >= price_eur * 0.50:
+                            if price_eur < market_eur:
+                                diff = round((1 - price_eur / market_eur) * 100)
+                                relation = f"ниже на {diff}%"
+                            elif price_eur > market_eur:
+                                diff = round((price_eur / market_eur - 1) * 100)
+                                relation = f"выше на {diff}%"
+                            else:
+                                relation = "примерно рынок"
+                            market_line = f"\n<b>Рынок:</b> ~{market_eur:.0f} евро, {relation} · {market_count} сравн."
+                        else:
+                            log.info(
+                                "IGNORE Apple Vinted unreliable market %.2f/%.2f %s: %s",
+                                price_eur,
+                                market_eur,
+                                apple_vinted_market_signature(item),
+                                title[:60],
+                            )
+                    else:
                         log.info(
-                            "SKIP Apple Vinted no market sample %s: %s",
+                            "IGNORE Apple Vinted no market sample %s: %s",
                             apple_vinted_market_signature(item),
                             title[:60],
                         )
-                        continue
-
-                    market_eur = float(market["price"])
-                    market_count = int(market["count"])
-                    if market_eur < price_eur * 0.50:
-                        log.info(
-                            "SKIP Apple Vinted unreliable market %.2f/%.2f %s: %s",
-                            price_eur,
-                            market_eur,
-                            apple_vinted_market_signature(item),
-                            title[:60],
-                        )
-                        continue
-                    if price_eur > market_eur * APPLE_VINTED_MAX_MARKET_RATIO:
-                        log.info("SKIP Apple Vinted not under market %.2f/%.2f: %s", price_eur, market_eur, title[:60])
-                        continue
-                    discount = max(0, round((1 - price_eur / market_eur) * 100))
-                    market_line = f"\n<b>Рынок:</b> ~{market_eur:.0f} евро, ниже на {discount}% · {market_count} сравн."
 
                     url = item.get("url", "")
                     link = f"https://{domain}{url}" if url.startswith("/") else url
