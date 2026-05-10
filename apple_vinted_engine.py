@@ -5,7 +5,6 @@ import re
 import time
 from io import BytesIO
 
-from market_price import calculate_market_price
 from shared import (
     USER_AGENTS,
     VINTED_REGIONS,
@@ -80,6 +79,160 @@ APPLE_BAD_CONDITION_TERMS = [
     "icloud", "айклауд", "копия", "реплика", "муляж",
     "uszkodzony", "nie dziala", "nie działa", "blokada icloud", "zablokowany",
 ]
+
+APPLE_ACCESSORY_TERMS = [
+    "case", "cover", "screen protector", "protector", "tempered glass", "glass",
+    "charger", "charging", "cable", "adapter", "dock", "stand", "holder",
+    "strap", "band", "watch band", "watch strap", "keyboard", "mouse", "trackpad",
+    "sleeve", "skin", "wallet", "lanyard", "pouch",
+    "etui", "obudowa", "pokrowiec", "szklo", "szkЕ‚o", "ladowarka", "Е‚adowarka",
+    "kabel", "pasek", "bransoleta", "uchwyt", "podstawka", "klawiatura", "mysz",
+    "deklas", "dД—klas", "laidas", "ikroviklis", "apyranke", "apyrankД—",
+    "macins", "ladetajs", "kabelis", "siksna", "turetajs",
+]
+
+
+def _first_regex_group(pattern, text):
+    match = re.search(pattern, text, re.IGNORECASE)
+    return match.group(1).lower() if match else ""
+
+
+def _normalize_model_token(value):
+    return re.sub(r"\s+", " ", str(value or "").strip().lower())
+
+
+def _device_or_accessory(item):
+    return "accessory" if _has_any_term(_apple_text_blob(item), APPLE_ACCESSORY_TERMS) else "device"
+
+
+def _iphone_model_signature(text):
+    number = _first_regex_group(r"\biphone\s*(1[1-7]|x|xs|xr|se|8|7|6s?|5s?)\b", text)
+    if not number and "apple" in text and not _has_any_term(text, ["macbook", "mac book", "ipad", "airpods", "air pods", "apple watch", "iwatch"]):
+        match = re.search(r"\b(1[1-7])\s*(pro\s*max|pro|plus|mini)?\b", text, re.IGNORECASE)
+        if match:
+            variant = _normalize_model_token(match.group(2) or "")
+            return _normalize_model_token(f"{match.group(1)} {variant}")
+    if not number:
+        return ""
+    start = text.find(number)
+    tail = text[start + len(number): start + len(number) + 40] if start >= 0 else ""
+    variant = ""
+    if re.search(r"\bpro\s*max\b", tail):
+        variant = "pro max"
+    elif re.search(r"\bpro\b", tail):
+        variant = "pro"
+    elif re.search(r"\bplus\b", tail):
+        variant = "plus"
+    elif re.search(r"\bmini\b", tail):
+        variant = "mini"
+    return _normalize_model_token(f"{number} {variant}")
+
+
+def _ipad_model_signature(text):
+    if "ipad" not in text:
+        return ""
+    family = ""
+    for value in ("pro", "air", "mini"):
+        if re.search(rf"\bipad\s+{value}\b|\b{value}\s+ipad\b", text):
+            family = value
+            break
+    size = _first_regex_group(r"\b(1[0-3](?:[.,]\d)?|9(?:[.,]\d)?)\s*(?:inch|in|\"|cala)\b", text)
+    gen = _first_regex_group(r"\b(\d{1,2})(?:st|nd|rd|th)?\s*(?:gen|generation|generacji)\b", text)
+    return _normalize_model_token(" ".join(part for part in (family, size, gen) if part)) or "ipad"
+
+
+def _macbook_model_signature(text):
+    if "macbook" not in text and "mac book" not in text:
+        return ""
+    family = "pro" if re.search(r"\bpro\b", text) else "air" if re.search(r"\bair\b", text) else ""
+    size = _first_regex_group(r"\b(1[1-6])\s*(?:inch|in|\"|cala)\b", text)
+    chip = _first_regex_group(r"\b(m[1-4](?:\s*(?:pro|max|ultra))?)\b", text)
+    year = _first_regex_group(r"\b(20[1-2]\d)\b", text)
+    return _normalize_model_token(" ".join(part for part in (family, size, chip, year) if part)) or "macbook"
+
+
+def _watch_model_signature(text):
+    if "apple watch" not in text and "iwatch" not in text:
+        return ""
+    if re.search(r"\bultra\s*2\b", text):
+        return "ultra 2"
+    if re.search(r"\bultra\b", text):
+        return "ultra"
+    se = "se" if re.search(r"\bse\b", text) else ""
+    series = _first_regex_group(r"\b(?:series|s)\s*(\d{1,2})\b", text)
+    size = _first_regex_group(r"\b(3[8-9]|4[0-9])\s*mm\b", text)
+    return _normalize_model_token(" ".join(part for part in (se or series, size) if part)) or "watch"
+
+
+def _airpods_model_signature(text):
+    if "airpods" not in text and "air pods" not in text and "airpod" not in text and "aipods" not in text:
+        return ""
+    if re.search(r"\bmax\b", text):
+        return "max"
+    if re.search(r"\bpro\s*2\b|2\s*(?:gen|generation|generacji).*\bpro\b", text):
+        return "pro 2"
+    if re.search(r"\bpro\b", text):
+        return "pro"
+    gen = _first_regex_group(r"\b([1-4])(?:st|nd|rd|th)?\s*(?:gen|generation|generacji)\b", text)
+    return _normalize_model_token(gen) or "airpods"
+
+
+def apple_vinted_market_signature(item):
+    text = _apple_text_blob(item)
+    kind = apple_vinted_product_kind(item)
+    accessory = _device_or_accessory(item)
+    model = ""
+    if kind == "iphone":
+        model = _iphone_model_signature(text)
+    elif kind == "ipad":
+        model = _ipad_model_signature(text)
+    elif kind == "macbook":
+        model = _macbook_model_signature(text)
+    elif kind == "watch":
+        model = _watch_model_signature(text)
+    elif kind == "airpods":
+        model = _airpods_model_signature(text)
+    elif kind in ("imac", "mac", "pencil"):
+        model = kind
+    return _normalize_model_token(f"{kind}:{model or 'unknown'}:{accessory}") if kind else ""
+
+
+def _to_price(value):
+    try:
+        price = float(value)
+    except (TypeError, ValueError):
+        return None
+    return price if price > 0 else None
+
+
+def calculate_market_price(items, target_item, price_getter, id_getter, item_filter, kind_getter, min_samples=1):
+    target_id = str(id_getter(target_item) or "")
+    target_kind = kind_getter(target_item)
+    prices = []
+
+    for item in items or []:
+        if str(id_getter(item) or "") == target_id:
+            continue
+        try:
+            if not item_filter(item):
+                continue
+        except Exception:
+            continue
+        if target_kind and kind_getter(item) != target_kind:
+            continue
+        price = _to_price(price_getter(item))
+        if price is not None:
+            prices.append(price)
+
+    if len(prices) < max(1, int(min_samples)):
+        return None
+
+    prices.sort()
+    mid = len(prices) // 2
+    median = prices[mid] if len(prices) % 2 else (prices[mid - 1] + prices[mid]) / 2
+    average = sum(prices) / len(prices)
+    market_price = round((median * 0.7) + (average * 0.3))
+    return {"price": market_price, "count": len(prices)}
 
 
 def _apple_text_blob(item):
@@ -169,6 +322,8 @@ def parse_apple_vinted_ts(item):
 
 def apple_vinted_product_kind(item):
     text = _apple_text_blob(item)
+    if _iphone_model_signature(text):
+        return "iphone"
     pairs = [
         ("iphone", ["iphone", "айфон"]),
         ("ipad", ["ipad", "айпад"]),
@@ -191,7 +346,7 @@ def apple_vinted_matches_keyword(item, keyword):
 
 def is_relevant_apple_vinted_item(item):
     text = _apple_text_blob(item)
-    if not _has_any_term(text, APPLE_PRODUCT_TERMS):
+    if not _has_any_term(text, APPLE_PRODUCT_TERMS) and not apple_vinted_product_kind(item):
         return False
     if _has_any_term(text, APPLE_CARRIER_JUNK_TERMS):
         return False
@@ -210,16 +365,31 @@ def apple_vinted_price_eur(item):
 
 
 def apple_vinted_market_price_eur(items, target_item, keyword=None):
+    target_price = apple_vinted_price_eur(target_item)
+    target_signature = apple_vinted_market_signature(target_item)
+    target_is_accessory = target_signature.endswith(":accessory")
+    min_sample_price = max(1, target_price * (0.20 if target_is_accessory else 0.35))
+    max_sample_price = target_price * (4.0 if target_is_accessory else 3.0) if target_price else None
+
+    def market_sample_filter(item):
+        if not is_relevant_apple_vinted_item(item):
+            return False
+        if keyword and not apple_vinted_matches_keyword(item, keyword):
+            return False
+        price = apple_vinted_price_eur(item)
+        if price < min_sample_price:
+            return False
+        if max_sample_price and price > max_sample_price:
+            return False
+        return True
+
     return calculate_market_price(
         items,
         target_item,
         price_getter=apple_vinted_price_eur,
         id_getter=lambda item: item.get("id"),
-        item_filter=lambda item: (
-            is_relevant_apple_vinted_item(item)
-            and (not keyword or apple_vinted_matches_keyword(item, keyword))
-        ),
-        kind_getter=apple_vinted_product_kind,
+        item_filter=market_sample_filter,
+        kind_getter=apple_vinted_market_signature,
         min_samples=APPLE_VINTED_MIN_MARKET_SAMPLES,
     )
 
@@ -246,7 +416,7 @@ def format_apple_vinted_message(item, domain, title, title_ru, price, curr, link
         price_eur = vinted_price_to_eur(price, curr)
         price_line = f"{price:g} {html.escape(str(curr))}"
         if str(curr).upper() != "EUR":
-            price_line += f" (~{price_eur:.0f} euros)"
+            price_line += f" (~{price_eur:.0f} евро)"
     except Exception:
         price_line = f"{price:g} {html.escape(str(curr))}"
 
@@ -258,9 +428,9 @@ def format_apple_vinted_message(item, domain, title, title_ru, price, curr, link
         f"<b>Apple Vinted {country}</b>\n"
         f"<b>{title_safe}</b>\n"
         f"{meta}"
-        f"<b>Price:</b> {price_line}{market_line}\n"
-        f"<b>Publication:</b> {posted}\n\n"
-        f"<a href='{link_safe}'>Open listing</a>"
+        f"<b>Цена:</b> {price_line}{market_line}\n"
+        f"<b>Публикация:</b> {posted}\n\n"
+        f"<a href='{link_safe}'>Открыть объявление</a>"
     )
 
 
@@ -312,6 +482,7 @@ def apple_vinted_loop(bot_app):
         sleep_while_market_running("apple_vinted", run_id, 1)
 
     log.info("Apple Vinted monitoring started: %s", ", ".join(APPLE_VINTED_DOMAINS))
+    sent_in_this_run = set()
 
     while is_market_run_current("apple_vinted", run_id):
         state["apple_vinted_stats"]["cycles"] += 1
@@ -337,7 +508,8 @@ def apple_vinted_loop(bot_app):
                     if not is_market_run_current("apple_vinted", run_id):
                         break
                     iid = item.get("id")
-                    if not iid or has_item_seen("apple_vinted", iid, domain):
+                    seen_key = f"{domain}:{iid}" if iid else ""
+                    if not iid or seen_key in sent_in_this_run or has_item_seen("apple_vinted", iid, domain):
                         continue
                     title = item.get("title", "?")
 
@@ -387,16 +559,29 @@ def apple_vinted_loop(bot_app):
 
                     market = apple_vinted_market_price_eur(market_items, item, keyword)
                     if not market:
-                        log.info("SKIP Apple Vinted no market sample: %s", title[:60])
+                        log.info(
+                            "SKIP Apple Vinted no market sample %s: %s",
+                            apple_vinted_market_signature(item),
+                            title[:60],
+                        )
                         continue
 
                     market_eur = float(market["price"])
                     market_count = int(market["count"])
+                    if market_eur < price_eur * 0.50:
+                        log.info(
+                            "SKIP Apple Vinted unreliable market %.2f/%.2f %s: %s",
+                            price_eur,
+                            market_eur,
+                            apple_vinted_market_signature(item),
+                            title[:60],
+                        )
+                        continue
                     if price_eur > market_eur * APPLE_VINTED_MAX_MARKET_RATIO:
                         log.info("SKIP Apple Vinted not under market %.2f/%.2f: %s", price_eur, market_eur, title[:60])
                         continue
                     discount = max(0, round((1 - price_eur / market_eur) * 100))
-                    market_line = f"\n<b>Market:</b> ~{market_eur:.0f} euros, {discount}% lower · {market_count} comparisons"
+                    market_line = f"\n<b>Рынок:</b> ~{market_eur:.0f} евро, ниже на {discount}% · {market_count} сравн."
 
                     url = item.get("url", "")
                     link = f"https://{domain}{url}" if url.startswith("/") else url
@@ -411,6 +596,7 @@ def apple_vinted_loop(bot_app):
                     )
                     if not mark_item_seen("apple_vinted", iid, domain):
                         continue
+                    sent_in_this_run.add(seen_key)
                     state["apple_vinted_stats"]["found"] += 1
                     log.info("FOUND Apple Vinted: %s - %.2f %s", title, price, curr)
                     loop.run_until_complete(_send_apple_vinted_item(bot_app, photo_data, msg, run_id))
