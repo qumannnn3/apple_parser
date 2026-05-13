@@ -420,6 +420,17 @@ def apple_vinted_matches_keyword(item, keyword):
     return keyword_matches_text(_apple_text_blob(item), keyword)
 
 
+def apple_vinted_matches_desc_filter(item):
+    """Return True if item passes desc_filter (all terms must appear in title+description)."""
+    desc_filter = state.get("apple_vinted_desc_filter") or []
+    if not desc_filter:
+        return True
+    description = str(item.get("description") or "").lower()
+    title = str(item.get("title") or "").lower()
+    text = f"{title} {description}"
+    return all(keyword_matches_text(text, term) for term in desc_filter)
+
+
 def is_relevant_apple_vinted_item(item):
     text = _apple_text_blob(item)
     if not _has_any_term(text, APPLE_PRODUCT_TERMS) and not apple_vinted_product_kind(item):
@@ -596,6 +607,9 @@ def apple_vinted_loop(bot_app):
                         continue
                     if keyword and not apple_vinted_matches_keyword(item, keyword):
                         log.info("SKIP Apple Vinted keyword '%s': %s", keyword, title[:60])
+                        continue
+                    if not apple_vinted_matches_desc_filter(item):
+                        log.info("SKIP Apple Vinted desc_filter: %s", title[:60])
                         continue
 
                     ts_d = parse_apple_vinted_ts(item)
