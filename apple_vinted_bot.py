@@ -183,10 +183,11 @@ async def cmd_keywords(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def cmd_desc_filter(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     state["awaiting"] = "apple_vinted_desc_filter"
     await update.message.reply_text(
-        "Введи слова/фразы для фильтра по описанию через запятую\n"
+        "Введи модели/фразы, которые нужно УБИРАТЬ, через запятую\n"
         f"Сейчас: <b>{_desc_filter_label()}</b>\n\n"
-        "Товары, у которых <b>хотя бы одно</b> слово встречается в названии или описании, будут <b>оставлены</b>.\n"
-        "Остальные будут пропущены. Например: <code>iphone 15, macbook m1</code>\n"
+        "Кнопка Описание работает как стоп-фильтр: что написал — то скрывается.\n"
+        "Фраза проверяется целиком: <code>iphone 15</code> убирает именно iphone 15, а не все iphone.\n"
+        "Например: <code>iphone 15, ipad mini, сломан</code>\n"
         "Чтобы очистить: <code>-</code>",
         parse_mode="HTML",
         reply_markup=reply_kb(),
@@ -251,8 +252,8 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await edit(
             "Введи слова для фильтра по описанию через запятую\n"
             f"Сейчас: <b>{_desc_filter_label()}</b>\n\n"
-            "Товары, у которых <b>хотя бы одно</b> слово встречается в названии или описании, будут <b>оставлены</b>.\n"
-            "Остальные будут пропущены. Например: <code>iphone 15, macbook m1</code>\n"
+            "Товары, у которых <b>хотя бы одно</b> слово встречается в названии или описании, будут <b>скрыты</b>.\n"
+            "Например: <code>сломан, разбит, запчасти</code>\n"
             "Чтобы очистить: <code>-</code>"
         )
         return
