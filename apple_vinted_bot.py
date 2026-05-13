@@ -185,8 +185,8 @@ async def cmd_desc_filter(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Введи слова/фразы для фильтра по описанию через запятую\n"
         f"Сейчас: <b>{_desc_filter_label()}</b>\n\n"
-        "Товар пройдёт, только если <b>все</b> слова найдены в названии или описании.\n"
-        "Например: <code>64gb, отличное состояние</code>\n"
+        "Будут показаны <b>только</b> товары, у которых хотя бы одно слово встречается в названии или описании.\n"
+        "Например: <code>iphone 15, macbook, airpods</code>\n"
         "Чтобы очистить: <code>-</code>",
         parse_mode="HTML",
         reply_markup=reply_kb(),
@@ -251,8 +251,8 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await edit(
             "Введи слова для фильтра по описанию через запятую\n"
             f"Сейчас: <b>{_desc_filter_label()}</b>\n\n"
-            "Товар пройдёт, только если <b>все</b> слова найдены в названии или описании.\n"
-            "Например: <code>64gb, отличное состояние</code>\n"
+            "Будут показаны <b>только</b> товары, у которых хотя бы одно слово встречается в названии или описании.\n"
+            "Например: <code>iphone 15, macbook, airpods</code>\n"
             "Чтобы очистить: <code>-</code>"
         )
         return
