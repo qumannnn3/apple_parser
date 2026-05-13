@@ -420,18 +420,54 @@ def apple_vinted_matches_keyword(item, keyword):
     return keyword_matches_text(_apple_text_blob(item), keyword)
 
 
-def apple_vinted_matches_desc_filter(item):
-    """Return True if item matches desc_filter terms.
+def _normalize_filter_text(value):
+    text = str(value or "").lower()
+    text = text.replace("ё", "е")
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
 
-    Button "Описание" works as an INCLUDE filter:
-    - empty filter: show everything
-    - terms entered: keep items where at least one term is found in title or description
+
+def apple_vinted_matches_desc_filter(item):
+    """
+    Button "Описание" is an EXCLUDE filter.
+
+    Important: each comma-separated value is checked as one full phrase.
+    Example: "iphone 15" removes only listings where the phrase "iphone 15" exists,
+    not every listing that merely contains "iphone" or "15" separately.
     """
     desc_filter = state.get("apple_vinted_desc_filter") or []
     if not desc_filter:
         return True
-    text = _apple_text_blob(item)
-    return any(keyword_matches_text(text, term) for term in desc_filter)
+
+    text = _normalize_filter_text(_apple_text_blob(item))
+    for phrase in desc_filter:
+        phrase = _normalize_filter_text(phrase)
+        if phrase and phrase in text:
+            return False
+    return True
+
+
+def apple_vinted_has_bad_battery(item, min_percent=90):
+    """Return True for iPhone listings with battery health below min_percent."""
+    if apple_vinted_product_kind(item) != "iphone":
+        return False
+
+    text = _normalize_filter_text(_apple_text_blob(item))
+
+    battery_patterns = [
+        r"(?:battery\s*health|battery\s*capacity|battery|bateria|kondycja\s*baterii|stan\s*baterii|pojemnosc\s*baterii|pojemność\s*baterii|akku|akumulator|akb|акб|батарея|емкость\s*акб|ёмкость\s*акб|bh)\D{0,25}(\d{2,3})\s*%?",
+        r"(\d{2,3})\s*%\D{0,25}(?:battery\s*health|battery|bateria|kondycja\s*baterii|stan\s*baterii|akku|akumulator|akb|акб|батарея|bh)",
+    ]
+
+    for pattern in battery_patterns:
+        for match in re.finditer(pattern, text, flags=re.IGNORECASE):
+            try:
+                value = int(match.group(1))
+            except (TypeError, ValueError):
+                continue
+            if 40 <= value <= 100 and value < min_percent:
+                return True
+    return False
 
 
 def is_relevant_apple_vinted_item(item):
@@ -613,6 +649,9 @@ def apple_vinted_loop(bot_app):
                         continue
                     if not apple_vinted_matches_desc_filter(item):
                         log.info("SKIP Apple Vinted desc_filter: %s", title[:60])
+                        continue
+                    if apple_vinted_has_bad_battery(item, min_percent=90):
+                        log.info("SKIP Apple Vinted battery <90%%: %s", title[:60])
                         continue
 
                     ts_d = parse_apple_vinted_ts(item)
