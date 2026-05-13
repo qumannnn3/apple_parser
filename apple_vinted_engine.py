@@ -421,14 +421,12 @@ def apple_vinted_matches_keyword(item, keyword):
 
 
 def apple_vinted_matches_desc_filter(item):
-    """Return True if item passes desc_filter (all terms must appear in title+description)."""
+    """Return True if item passes desc_filter (none of the terms must appear in title+description)."""
     desc_filter = state.get("apple_vinted_desc_filter") or []
     if not desc_filter:
         return True
     description = str(item.get("description") or "").lower()
-    title = str(item.get("title") or "").lower()
-    text = f"{title} {description}"
-    return all(keyword_matches_text(text, term) for term in desc_filter)
+    return not any(keyword_matches_text(description, term) for term in desc_filter)
 
 
 def is_relevant_apple_vinted_item(item):
