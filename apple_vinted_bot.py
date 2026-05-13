@@ -50,6 +50,14 @@ def _keywords_label():
     return keywords_label(MARKET)
 
 
+def _desc_filter_label():
+    terms = state.get("apple_vinted_desc_filter") or []
+    if not terms:
+        return "нет"
+    text = ", ".join(terms)
+    return text if len(text) <= 90 else text[:87] + "..."
+
+
 def _regions_label():
     return " ".join(f".{code}" for code in APPLE_VINTED_REGIONS)
 
@@ -65,6 +73,7 @@ def menu_text():
         f"<b>Цена:</b> {_price_label()}\n"
         f"<b>Публикация:</b> {_age_label()}\n"
         f"<b>Ключи:</b> {_keywords_label()}\n"
+        f"<b>Фильтр описания:</b> {_desc_filter_label()}\n"
         f"<b>Найдено:</b> {stats['found']} | <b>Циклов:</b> {stats['cycles']}\n"
         f"<b>Обновлено:</b> {last}\n\n"
         "Фильтр пропускает Apple-технику и Apple-аксессуары, но режет сумки/рюкзаки под laptop/ipad, "
@@ -80,6 +89,7 @@ def menu_kb():
             InlineKeyboardButton("Цена", callback_data="price"),
             InlineKeyboardButton("Время", callback_data="age"),
             InlineKeyboardButton("Ключи", callback_data="keywords"),
+            InlineKeyboardButton("Описание", callback_data="desc_filter"),
         ],
         [InlineKeyboardButton("Обновить", callback_data="menu")],
     ])
@@ -87,7 +97,7 @@ def menu_kb():
 
 def reply_kb():
     return ReplyKeyboardMarkup(
-        [["Меню", "▶ Запустить"], ["⏹ Остановить", "Цена"], ["Время", "Ключи"]],
+        [["Меню", "▶ Запустить"], ["⏹ Остановить", "Цена"], ["Время", "Ключи"], ["Описание"]],
         resize_keyboard=True,
         is_persistent=True,
     )
@@ -170,6 +180,19 @@ async def cmd_keywords(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def cmd_desc_filter(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    state["awaiting"] = "apple_vinted_desc_filter"
+    await update.message.reply_text(
+        "Введи слова/фразы для фильтра по описанию через запятую\n"
+        f"Сейчас: <b>{_desc_filter_label()}</b>\n\n"
+        "Товар пройдёт, только если <b>все</b> слова найдены в названии или описании.\n"
+        "Например: <code>64gb, отличное состояние</code>\n"
+        "Чтобы очистить: <code>-</code>",
+        parse_mode="HTML",
+        reply_markup=reply_kb(),
+    )
+
+
 async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     user = getattr(q, "from_user", None)
@@ -223,6 +246,17 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    if data == "desc_filter":
+        state["awaiting"] = "apple_vinted_desc_filter"
+        await edit(
+            "Введи слова для фильтра по описанию через запятую\n"
+            f"Сейчас: <b>{_desc_filter_label()}</b>\n\n"
+            "Товар пройдёт, только если <b>все</b> слова найдены в названии или описании.\n"
+            "Например: <code>64gb, отличное состояние</code>\n"
+            "Чтобы очистить: <code>-</code>"
+        )
+        return
+
 
 async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     message = update.message
@@ -265,11 +299,25 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await cmd_keywords(update, ctx)
         return
 
+    if button_text in ("описание", "desc_filter", "/desc_filter"):
+        await cmd_desc_filter(update, ctx)
+        return
+
     if awaiting == "apple_vinted_keywords":
         state["apple_vinted_keywords"] = parse_keywords(text)
         state["awaiting"] = None
         await message.reply_text(
             f"✅ Ключи: <b>{_keywords_label()}</b>\n\n{menu_text()}",
+            parse_mode="HTML",
+            reply_markup=menu_kb(),
+        )
+        return
+
+    if awaiting == "apple_vinted_desc_filter":
+        state["apple_vinted_desc_filter"] = parse_keywords(text)
+        state["awaiting"] = None
+        await message.reply_text(
+            f"✅ Фильтр описания: <b>{_desc_filter_label()}</b>\n\n{menu_text()}",
             parse_mode="HTML",
             reply_markup=menu_kb(),
         )
@@ -318,6 +366,7 @@ async def setup_bot_commands(app):
         BotCommand("price", "Диапазон цен"),
         BotCommand("age", "Время публикации"),
         BotCommand("keywords", "Ключевые слова"),
+        BotCommand("desc_filter", "Фильтр по описанию"),
     ])
 
 
@@ -334,6 +383,7 @@ def main():
     bot_app.add_handler(CommandHandler("price", _autosave(cmd_price)))
     bot_app.add_handler(CommandHandler("age", _autosave(cmd_age)))
     bot_app.add_handler(CommandHandler("keywords", _autosave(cmd_keywords)))
+    bot_app.add_handler(CommandHandler("desc_filter", _autosave(cmd_desc_filter)))
     bot_app.add_handler(CallbackQueryHandler(_autosave(on_callback)))
     bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _autosave(on_message)))
     log.info("Apple Vinted bot polling started. Open Telegram and send /start")
