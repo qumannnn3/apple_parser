@@ -80,6 +80,19 @@ APPLE_BAD_CONDITION_TERMS = [
     "uszkodzony", "nie dziala", "nie działa", "blokada icloud", "zablokowany",
 ]
 
+
+# Battery-health words in EN/RU/PL/LT/LV/EE/FI/DE.
+# These are treated as a reason to skip an iPhone completely when battery health is under 90%.
+APPLE_BATTERY_HEALTH_TERMS = [
+    "battery", "battery health", "battery capacity", "battery percentage", "bh",
+    "batterie", "akku", "akkukunto", "akun kunto", "akutase",
+    "bateria", "kondycja baterii", "pojemnosc baterii", "pojemność baterii",
+    "baterija", "baterijos bukle", "baterijos būklė", "akumuliatorius",
+    "akumuliatoriaus bukle", "akumuliatoriaus būklė", "talpa",
+    "baterija", "baterijas stavoklis", "baterijas stāvoklis", "akumulators",
+    "батарея", "аккумулятор", "акб", "ёмкость", "емкость", "износ",
+]
+
 APPLE_ACCESSORY_TERMS = [
     "case", "cover", "screen protector", "protector", "tempered glass", "glass",
     "charger", "charging", "cable", "adapter", "dock", "stand", "holder",
@@ -91,19 +104,49 @@ APPLE_ACCESSORY_TERMS = [
     "macins", "ladetajs", "kabelis", "siksna", "turetajs",
 ]
 
-# Battery-health words used across Vinted regions and common seller languages.
-# iPhone listings with battery health below this limit are fully excluded.
-APPLE_IPHONE_MIN_BATTERY_HEALTH = 90
-APPLE_IPHONE_BATTERY_TERMS = [
-    "battery", "battery health", "battery capacity", "battery condition", "bh",
-    "bateria", "baterii", "kondycja baterii", "pojemnosc baterii", "pojemność baterii",
-    "akumulator", "akumulatora", "kondycja akumulatora",
-    "baterija", "baterijos", "akumuliatorius", "akumuliatoriaus",
-    "aku", "akku", "akb", "accu", "baterie",
-    "baterija", "baterijas", "akumulators", "akumulatora",
-    "акб", "аккумулятор", "аккумулятора", "батарея", "батареи",
-    "ёмкость", "емкость", "состояние батареи", "состояние аккумулятора",
-]
+
+def _is_iphone_text(text):
+    return bool(re.search(r"\biphone\b|айфон", text or "", re.IGNORECASE))
+
+
+def _has_low_battery_health(text):
+    """Detect iPhone battery-health mentions below 90% in many languages.
+
+    Listings with battery health under 90% are rejected.
+    """
+    text = str(text or "").lower()
+    if not _is_iphone_text(text):
+        return False
+    if not _has_any_term(text, APPLE_BATTERY_HEALTH_TERMS):
+        return False
+    for match in re.finditer(r"(?<!\d)([1-8]?\d)(?:[.,]\d+)?\s*%", text):
+        try:
+            value = int(match.group(1))
+        except ValueError:
+            continue
+        if 1 <= value < 90:
+            start = max(0, match.start() - 80)
+            end = min(len(text), match.end() + 80)
+            window = text[start:end]
+            if _has_any_term(window, APPLE_BATTERY_HEALTH_TERMS):
+                return True
+    return False
+
+
+def _strip_battery_health_context(text):
+    """Remove short low-battery-health fragments before bad-condition checks.
+
+    Remove low battery fragments.
+    """
+    text = str(text or "")
+    if not _has_low_battery_health(text):
+        return text
+    cleaned = text
+    for term in sorted(APPLE_BATTERY_HEALTH_TERMS, key=len, reverse=True):
+        term_re = re.escape(term)
+        cleaned = re.sub(rf".{0,60}{term_re}.{0,60}(?<!\d)([1-8]?\d)(?:[.,]\d+)?\s*%.{0,40}", " ", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(rf".{0,40}(?<!\d)([1-8]?\d)(?:[.,]\d+)?\s*%.{0,60}{term_re}.{0,60}", " ", cleaned, flags=re.IGNORECASE)
+    return cleaned
 
 
 def _first_regex_group(pattern, text):
@@ -447,61 +490,14 @@ def apple_vinted_matches_desc_filter(item):
     return any(keyword_matches_text(text, term) for term in desc_filter)
 
 
-
-def _iphone_battery_health_below_limit(item, limit=APPLE_IPHONE_MIN_BATTERY_HEALTH):
-    """Return True when an iPhone listing explicitly says battery health is below limit.
-
-    Handles common wording in English, Russian, Polish, Lithuanian, Latvian and
-    seller abbreviations such as BH/AKB/akku. The check is intentionally tied to
-    nearby battery words so model numbers like "iPhone 15" are not mistaken for
-    battery percentages.
-    """
-    if apple_vinted_product_kind(item) != "iphone":
-        return False
-
-    text = _apple_text_blob(item)
-    if not text:
-        return False
-
-    battery_patterns = [re.escape(term) for term in APPLE_IPHONE_BATTERY_TERMS]
-    battery_re = r"(?:" + "|".join(battery_patterns) + r")"
-    # 87%, 87 %, 87 procent, 87 proc, 87 percent, 87 процентов
-    percent_re = r"(100|[1-9]?\d(?:[,.]\d+)?)\s*(?:%|percent|procent|proc\.?|проц(?:ент(?:а|ов)?)?)"
-
-    for match in re.finditer(percent_re, text, re.IGNORECASE):
-        try:
-            value = float(match.group(1).replace(",", "."))
-        except ValueError:
-            continue
-        if value >= float(limit):
-            continue
-        start = max(0, match.start() - 80)
-        end = min(len(text), match.end() + 80)
-        nearby = text[start:end]
-        if re.search(battery_re, nearby, re.IGNORECASE):
-            return True
-
-    # Some sellers write compact forms like "BH 86" or "АКБ 85" without %.
-    compact_re = rf"\b{battery_re}\b\s*[:=\-]?\s*(100|[1-9]?\d(?:[,.]\d+)?)\b"
-    for match in re.finditer(compact_re, text, re.IGNORECASE):
-        try:
-            value = float(match.group(1).replace(",", "."))
-        except ValueError:
-            continue
-        if 50 <= value < float(limit):
-            return True
-
-    return False
-
 def is_relevant_apple_vinted_item(item):
     text = _apple_text_blob(item)
-    if _iphone_battery_health_below_limit(item):
-        return False
     if not _has_any_term(text, APPLE_PRODUCT_TERMS) and not apple_vinted_product_kind(item):
         return False
     if _has_any_term(text, APPLE_CARRIER_JUNK_TERMS):
         return False
-    if _has_any_term(text, APPLE_BAD_CONDITION_TERMS):
+    bad_condition_text = _strip_battery_health_context(text)
+    if _has_any_term(bad_condition_text, APPLE_BAD_CONDITION_TERMS):
         return False
     return bool(apple_vinted_product_kind(item))
 
