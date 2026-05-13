@@ -287,6 +287,7 @@ def _new_state():
     "apple_vinted_min_age_hours": 0,
     "apple_vinted_max_age_hours": MAX_AGE_HOURS,
     "apple_vinted_keywords": [],
+    "apple_vinted_desc_filter": [],
     "apple_vinted_interval": 300,
     "apple_vinted_run_id": 0,
     "apple_vinted_seen": set(),
@@ -338,6 +339,7 @@ _PERSISTED_KEYS = {
     "apple_vinted_min_age_hours",
     "apple_vinted_max_age_hours",
     "apple_vinted_keywords",
+    "apple_vinted_desc_filter",
     "apple_vinted_seen",
 }
 
